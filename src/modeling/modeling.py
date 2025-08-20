@@ -38,7 +38,7 @@ PARAM_GRIDS = {
     "max_depth": [None, 5, 10, 20, 30],
     "min_samples_split": [2, 5, 10],
     "min_samples_leaf": [1, 2, 4],
-    "max_features": ["auto", "sqrt", 0.5],  
+    "max_features": [None, 'sqrt', 'log2'],  
     "bootstrap": [True, False]
 },  
 "xgb": {
@@ -120,6 +120,9 @@ def model_selection(results_df: pd.DataFrame, metric: str) ->  Tuple[BaseEstimat
     selected_param_grid = PARAM_GRIDS[best_model]
 
     return selected_model, selected_param_grid 
+
+
+def plot_important_features(important_features: np.ndarray,   ):
 
 
 def run_modeling(training_path: str, test_path: str, metric: str = 'mse') ->  Tuple[BaseEstimator, Dict[str, Any], float]:
