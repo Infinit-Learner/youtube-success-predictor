@@ -5,12 +5,19 @@ import seaborn as sns
 import xgboost as xgb
 import datetime
 import logging
-import joblib   
- 
+import joblib
+from typing import Tuple, Callable, Dict, Any 
+
+from sklearn.base import BaseEstimator
+from sklearn.inspection import permutation_importance   
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.linear_model import Ridge, Lasso, LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s")
 
 TEST_SIZE = 0.2
 CV_NUM = 5
@@ -59,20 +66,20 @@ BASELINE_MODELS = {"linear_regression": LinearRegression(),
                                 colsample_bytree = 0.8, random_state = 42, n_jobs = -1 )
                                 }
 
-def baseline_model_evaluation(X_train: pd.Dataframe , X_test: pd.Dataframe, 
-                            y_train: pd.Dataframe, y_test: pd.DataFrame, metric: str, metric_func: Callable) -> pd.DataFrame:
+def baseline_model_evaluation(X_train: pd.DataFrame , X_test: pd.DataFrame, 
+                            y_train: pd.DataFrame, y_test: pd.DataFrame, metric: str, metric_func: Callable) -> pd.DataFrame:
     '''
     Trains and evaluates baseline models 
 
     Args:
-        X_train (pd.Dataframe): Training feature dataframe 
-        X_test (pd.Dataframe): Testing feature dataframe
-        y_train (pd.Dataframe): Training target dataframe 
+        X_train (pd.DataFrame): Training feature dataframe 
+        X_test (pd.DataFrame): Testing feature dataframe
+        y_train (pd.DataFrame): Training target dataframe 
         y_test (pd.DataFrame): Testing target dataframe 
         metric (str): Metric to evaluate preformance (R squared, MSE, MAE) 
         metric_func (Callable): The sklearn function associated with the metric selected 
     Returns: 
-        pd.Dataframe: MSE results dataframe 
+        pd.DataFrame: MSE results dataframe 
     '''
     metric = metric.lower()
     if metric not in METRICS:
@@ -119,10 +126,70 @@ def model_selection(results_df: pd.DataFrame, metric: str) ->  Tuple[BaseEstimat
     selected_model = model_dict[best_model]
     selected_param_grid = PARAM_GRIDS[best_model]
 
-    return selected_model, selected_param_grid 
+    return best_model, selected_model, selected_param_grid 
 
 
-def plot_important_features(important_features: np.ndarray,   ):
+def plot_important_features(tuned_model: BaseEstimator, X_eval: pd.DataFrame, y_eval: pd.Series,
+                         model_name: str, timestamp: str, show: bool = True):
+    '''
+    Plots and saves feature importances of inputed model
+
+    Args: 
+        tuned_model (BaseEstimator): Tuned ensemble model
+        model_name (str): Name of the tuned model
+        timestamp (str): The timestamp for when the plot is generated. For future comparison and experimentation
+        X_eval (pd.DataFrame): Evaluation Feature Dataframe
+        y_eval (pd.Series): Evaluation Target Series
+        show (bool): Option to show plot
+    '''
+    result = permutation_importance(
+    estimator=tuned_model,
+    X=X_eval,
+    y=y_eval,
+    n_repeats=10,             
+    scoring='neg_mean_squared_error',
+    random_state=42,
+    n_jobs= -1
+    
+)
+
+# Put into a DataFrame
+    perm_df = pd.DataFrame({
+        'feature': X_eval.columns,
+        'importance_mean': result.importances_mean,
+        'importance_std': result.importances_std
+    }).sort_values(by='importance_mean', ascending=False)
+
+    plt.figure(figsize= (10,10))
+    plt.barh(perm_df['feature'], perm_df['importance_mean'])
+    plt.xlabel('Decrease in performance after shuffling')
+    plt.title(f'Permutation Importance ({model_name})')
+    plt.gca().invert_yaxis()
+    plt.tight_layout()
+    plt.savefig(f'../figures/feature-importance/{model_name}_feature_importance_plot_{timestamp}.png')
+
+    if show:
+        plt.show()
+
+def plot_predictions(y_true: pd.Series , model_pred: np.ndarray, timestamp: str, model_name: str, show: bool = True ):
+        '''
+    Plots and saves predictions of inputed model against the true values
+
+    Args: 
+        y_true (pd.Series): The true target values
+        model_pred (np.ndarray): The model predicted target values
+        model_name (str): Name of the tuned model
+        timestamp (str): The timestamp for when the plot is generated. For future comparison and experimentation
+        show (bool): Option to show plot    
+    '''
+    sns.scatterplot(x = y_true, y = model_pred)
+    plt.title(" Model Predictions vs True Plot")
+    plt.ylabel("Model Predictions")
+    plt.xlabel("True Values")
+    plt.savefig(f'../figures/predictions/{model_name}_predictions_plot_{timestamp}.png')
+
+    if show:
+        plt.show()
 
 
 def run_modeling(training_path: str, test_path: str, metric: str = 'mse') ->  Tuple[BaseEstimator, Dict[str, Any], float]:
@@ -169,7 +236,7 @@ def run_modeling(training_path: str, test_path: str, metric: str = 'mse') ->  Tu
     
     
     # Selecting model according to results 
-    selected_model, selected_param_grid = model_selection(baseline_results_df, metric)
+    selected_model_name, selected_model, selected_param_grid = model_selection(baseline_results_df, metric)
 
     # Hyperparameter tuning for selected model
     grid_search = GridSearchCV(estimator= selected_model, param_grid= selected_param_grid, cv = CV_NUM, n_jobs = -1)
@@ -184,14 +251,29 @@ def run_modeling(training_path: str, test_path: str, metric: str = 'mse') ->  Tu
     
     tuned_pred = tuned_model.predict(X_eval)   
     tuned_metric = metric_func(y_eval, tuned_pred)
-    looging.info(tuned_metric)
+    logging.info(tuned_metric)
 
-    # Saving tuned model 
+    # Saving timestamp for experiment tracking 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    joblib.dump(tuned_model,f"../models/xgb_model_{timestamp}.json")
+
+    # Generating and Saving Plots 
+    plot_important_features(tuned_model =  tuned_model, timestamp = timestamp, model_name = selected_model_name, 
+                            y_eval= y_eval, X_eval= X_eval)
+    plot_predictions(y_true = y_eval, model_pred = tuned_pred, model_name = selected_model_name, timestamp = timestamp)
+
+    # Saving experiment artifacts
+    baseline_results_df.to_csv( f"../data-results/baseline_results_{timestamp}.csv" )
+    with open( f"../logs/{selected_model_name}_{metric}_{timestamp}.json", 'w') as m:
+        json.dump({"metric":tuned_metric}, m )
+ 
+
+
+    # Saving tuned model and best parameters 
+    joblib.dump(tuned_model,f"../models/{selected_model_name}_model_{timestamp}.pk1")
+    with open('f"../models/{selected_model_name}_best_params_{timestamp}.json"') as p:
+        json.dump(best_params,p)    
     
-    
-    return tuned_model, best_params, tuned_metric 
+     
 
     
-    
+     
