@@ -67,7 +67,7 @@ BASELINE_MODELS = {"linear_regression": LinearRegression(),
                     "ridge": Ridge(alpha= 1.0),
                     "random_forest": RandomForestRegressor(n_estimators= 100, max_depth= None, random_state= 42, n_jobs= -1 ),
                     "xgb":xgb.XGBRegressor(n_estimators = 300, max_depth = 6, learning_rate = 0.1, subsample = 0.8, 
-                                colsample_bytree = 0.8, random_state = 42, n_jobs = -1 )
+                                colsample_bytree = 0.8, random_state = 42, n_jobs = 1 )
                                 }
 
 def start_modeling(training_path: str, test_path: str, metric: str = 'mse', 
@@ -342,7 +342,7 @@ def save_artifacts(baseline_results_df: pd.DataFrame, tuned_model: BaseEstimator
 
     # Saving tuned model and best parameters 
     joblib.dump(tuned_model,f"../models/{model_name}_model_{timestamp}.pk1")
-    with open('f"../models/{model_name}_best_params_{timestamp}.json"') as p:
+    with open(f"../models/{model_name}_best_params_{timestamp}.json", 'w') as p:
         json.dump(best_params,p)
 
 
